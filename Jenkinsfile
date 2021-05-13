@@ -1,33 +1,83 @@
- node {
-     def app
+pipeline {
+    agent {
+        node {
+            label 'BUILD'
+        }
+    }
+    
+    environment {
+        TYPE = "build"
+        PROJECT = "webapp"
+        PHASE = "dev"
+        GIT_URL = "https://github.com/auswls810/test.git"
+        ARTIFACTS = "build/libs/**"
+    }
+    
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: "30", artifactNumToKeepStr: "30"))
+        timeout(time: 120, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+    }
+    
+    tools {
+        jdk "jdk8-latest"
+        nodejs "node-latest"
+        gradle "gradle-latest"
+    }
+    
+    stages {
+        stage('Set Environment') {
+            steps {
+                script {
+                    if (PHASE == 'dev') {
+                        BRANCH = 'develop'
+                    } else if (PHASE == 'prod') {
+                        BRANCH = 'master'
+                    }
+                }
+            }
+        } 
+        stage('Checkout') {
+            steps {
+                git url: "${GIT_URL}", branch: "${BRANCH}", poll: true, changelog: true
+            }
+        }
+        stage('Builds') {
+			failFast true
+            parallel {
+                stage('[Build] NPM') {
+                    steps {
+                        sh """
+                            cd ${WORKSPACE}
+                            npm set progress=false
+                            yarn install
+                            yarn run ${NPM_BUILD_MODE}
+                        """
+                    }
+                }
 
-     stage('Clone repository') {
-         /* Let's make sure we have the repository cloned to our workspace */
-
-         checkout scm
-     }
-
-     stage('Build image') {
-         /* This builds the actual image; synonymous to
-         * docker build on the command line */
-
-         app = docker.build("auswls810/myapp-jenkins")
-     }
-
-     stage('Test image') {
-         app.inside {
-             sh 'echo "Tests passed"'
-         }
-     }
-
-     stage('Push image') {
-         /* Finally, we'll push the image with two tags:
-         * First, the incremental build number from Jenkins
-         * Second, the 'latest' tag.
-         * Pushing multiple tags is cheap, as all the layers are reused. */
-         docker.withRegistry('https://registry.hub.docker.com', 'docker-hub') {
-             app.push("${env.BUILD_NUMBER}")
-             app.push("latest")
-         }
-     }
- }
+                stage('[Build] Gradle') {
+                    steps {
+                        sh "gradle clean build -x test --stacktrace"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            archiveArtifacts artifacts: "${ARTIFACTS}"
+            slackSend channel: '#ops-room',
+                color: 'good',
+                message: "The pipeline ${currentBuild.fullDisplayName} completed successfully."
+        }
+        failure {
+            mail to: 'team@example.com',
+             subject: "Failed Pipeline: ${currentBuild.fullDisplayName}",
+             body: "Something is wrong with ${env.BUILD_URL}"
+        }
+    }
+}
