@@ -5,7 +5,8 @@ node {
          /* This builds the actual image; synonymous to
          * docker build on the command line */
 
-         app = docker.build("auswls810/myapp-jenkins")
+         app = docker.build("556683426101.dkr.ecr.ap-southeast-2.amazonaws.com/jenkins-ecr
+")
      }
 
      stage('Test image') {
@@ -15,11 +16,10 @@ node {
      }
 
      stage('Push image') {
-         /* Finally, we'll push the image with two tags:
-         * First, the incremental build number from Jenkins
-         * Second, the 'latest' tag.
-         * Pushing multiple tags is cheap, as all the layers are reused. */
-         docker.withRegistry('https://registry.hub.docker.com', 'docker-hub') {
+         sh 'rm  ~/.dockercfg || true'
+         sh 'rm ~/.docker/config.json || true'
+         docker.withRegistry('556683426101.dkr.ecr.ap-southeast-2.amazonaws.com/jenkins-ecr
+', 'ecr-user') {
              app.push("${env.BUILD_NUMBER}")
              app.push("latest")
          }
